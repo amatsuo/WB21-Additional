@@ -1,0 +1,155 @@
+---
+title: "Simple Machine Learning Pipeline"
+author: "Aki Matsuo"
+date: "06-04-2021"
+output: html_document
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Introduction
+
+- This will show an example of simple ML pipeline for data augumentation
+- When you conduct the prediction, you need two things
+  1. Data preprocessing 
+  2. Estimated model
+- Both have to be saved after the model estimation.
+
+## Data
+
+I created two data from the brexit data we used for Day 4-5 exercise. Two data files are created:
+
+1. `data/bes_labeled.csv.gz`: dataset with brexit vote label
+2. `data/bes_unlabeled.csv.gz`: dataset without brexit vote label
+
+This is an artificial example of creating argumented data through ML.
+
+
+## Libraries
+
+```{r}
+library(tidyverse)
+library(caret)
+```
+
+## Load labelled data
+
+The step here is the same as the example we saw in the course. 
+
+1. Create a data partition for train and test
+2. Preprocess the data
+3. Estimate the model
+4. Evaluate the model
+
+
+```{r}
+set.seed(20200813)
+data_brexit_labeled <- read_csv("data/data_bes_labeled.csv.gz")
+```
+
+
+
+### Data preparation
+
+- We will carry out:
+  - make `LeaveVote` factor variable
+  - test train split
+  - preprocess
+
+
+```{r}
+data_brexit_labeled <- data_brexit_labeled %>%
+    mutate(LeaveVote = factor(LeaveVote))
+```
+
+### Train-test split
+
+```{r}
+train_idx <- createDataPartition(data_brexit_labeled$LeaveVote, p = .7, list = F) 
+
+data_train <- data_brexit_labeled %>% slice(train_idx)
+data_test <- data_brexit_labeled %>% slice(-train_idx)
+```
+
+### Preprocess
+
+```{r}
+prep_brexit_data <- preProcess(data_train %>% select(-LeaveVote), method = c("center", "scale"))
+prep_brexit_data
+
+data_train_preped <- predict(prep_brexit_data, data_train)
+data_test_preped <- predict(prep_brexit_data, data_test)
+
+```
+
+Among the four models in Hobolt (2016), we use the attitude model as the predictive performance is the best.
+
+```{r}
+fm_attitudes <- formula("LeaveVote ~ gender + age + edlevel + hhincome + euUKNotRich + 
+              euNotPreventWar + FreeTradeBad + euParlOverRide1 + euUndermineIdentity1 + 
+              lessEUmigrants + effectsEUTrade1 + effectsEUImmigrationLower")
+```
+
+### Model Building
+
+- Train a linear SVM model, check the predictive performance. 
+
+```{r}
+model_svm_final <- train(fm_attitudes, data = data_train_preped, method = "svmLinear")
+print(model_svm_final)
+
+test_pred <- predict(model_svm_final, newdata = data_test_preped) 
+confusionMatrix(test_pred, data_test_preped$LeaveVote, 
+                positive = "1", mode = "prec_recall")
+
+
+```
+
+Although a bit simpler than it should be, we have completed the process of ML. From here, we move to the next steps. We save the necessary objects from the current ML task and get the prediction for the unlabelled model.
+
+
+### Save the work
+
+```{r}
+save(model_svm_final, prep_brexit_data, file = "pipeline-components.rda")
+```
+
+## Get the argumented data for unlabeled data
+
+
+### Load the saved object
+
+```{r}
+rm(list = ls())
+load("pipeline-components.rda")
+```
+
+### Load the unlabelled data
+
+```{r}
+data_brexit_unlabeled <- read_csv('data/data_bes_unlabeled.csv.gz')
+glimpse(data_brexit_unlabeled)
+```
+
+### Get the prediction for the unlabeled data
+
+We first preprocess the unlabeled data using the same process as prepared, then get the predictions. 
+
+
+```{r}
+data_transformed <- predict(prep_brexit_data, data_brexit_unlabeled) # transform the data
+
+# Add a new variable of prediction
+data_brexit_unlabeled <- data_brexit_unlabeled %>%
+  mutate(predicted_brexit_vote = predict(model_svm_final, data_transformed))
+
+data_brexit_unlabeled$predicted_brexit_vote %>% head(100)
+```
+
+That's it. Now we have the argumented data, which you can use for the further analysis. You can get the idea of what can be done with the data from:
+
+- Jason Anastasopoulos, Andrew B Whitford, 2019, "Machine Learning for Public Administration Research, With Application to Organizational Reputation", **Journal of Public Administration Research and Theory**, 29 (3): 491-510.
+- Molina, M. and Garip, F., 2019. "Machine learning for sociology", **Annual Review of Sociology,** 45:27-45.
